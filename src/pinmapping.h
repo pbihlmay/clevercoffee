@@ -22,7 +22,8 @@
 
 // Sensors
 #define PIN_TEMPSENSOR 16
-#define PIN_PRESSURESENSOR 36
+#define PIN_TEMPSENSORTWO 23     // PB second temp sensor
+#define PIN_PRESSURESENSOR 36   
 #define PIN_WATERSENSOR 23
 #define PIN_FLOWSENSOR 1
 #define PIN_HXDAT 32            // Brew scale data pin 1

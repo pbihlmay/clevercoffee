@@ -17,9 +17,7 @@
 #include <map>
 #include <LittleFS.h>
 
-#if TEMPSENSOR == 1
-    #include <DallasTemperature.h>  // Library for dallas temp sensor
-#endif
+
 
 #include <WiFiManager.h>
 #include <U8g2lib.h>            // i2c display
@@ -36,6 +34,10 @@
 #include "userConfig.h"         // needs to be configured by the user
 #include "defaults.h"
 #include <os.h>
+
+#if TEMPSENSOR == 1
+    #include <DallasTemperature.h>  // Library for dallas temp sensor
+#endif
 
 hw_timer_t *timer = NULL;
 
@@ -274,7 +276,7 @@ double setpointTemp;
 double previousInput = 0;
 
 // Variables to hold PID values (Temp input, Heater output)
-double temperature, pidOutput;
+double temperature, temperaturetwo, pidOutput; // PB temperaturetwo for second Temp Sensor
 int steamON = 0;
 int steamFirstON = 0;
 
@@ -299,7 +301,7 @@ PID bPID(&temperature, &pidOutput, &setpoint, aggKp, aggKi, aggKd, 1, DIRECT);
 
 // Dallas temp sensor
 #if TEMPSENSOR == 1
-    OneWire oneWire(PINTEMPSENSOR);         // Setup a OneWire instance to communicate with OneWire
+    OneWire oneWire(PIN_TEMPSENSOR);         // Setup a OneWire instance to communicate with OneWire
                                             // devices (not just Maxim/Dallas temperature ICs)
     DallasTemperature sensors(&oneWire);
     DeviceAddress sensorDeviceAddress;      // arrays to hold device address
@@ -307,6 +309,7 @@ PID bPID(&temperature, &pidOutput, &setpoint, aggKp, aggKi, aggKd, 1, DIRECT);
 
 // TSIC 306 temp sensor
 ZACwire Sensor2(PIN_TEMPSENSOR, 306);    // set pin to receive signal from the TSic 306
+ZACwire Sensor2two(PIN_TEMPSENSORTWO, 306); // PB set pin to receive signal from the second TSic 306
 
 
 #include "InfluxDB.h"
@@ -404,8 +407,8 @@ const unsigned long intervalDisplay = 500;
         #include "Displayrotateupright.h"
     #endif
 
-    #if (DISPLAYTEMPLATE == 1)
-        #include "Displaytemplatestandard.h"
+    #if (DISPLAYTEMPLATE == 1)  // PB implementation of own Display templates with two temperature sensors
+        #include "Displaytemplatestandardown.h"
     #endif
 
     #if (DISPLAYTEMPLATE == 2)
@@ -586,6 +589,7 @@ void refreshTemp() {
 
             #if TEMPSENSOR == 2
                 temperature = Sensor2.getTemp(15);
+                temperaturetwo = Sensor2two.getTemp(15); // PB read second temp sensor
             #endif
 
             if (machineState != kSteam) {
@@ -1986,6 +1990,7 @@ void setup() {
     
     // Values reported to MQTT
     mqttSensors["temperature"] = []{ return temperature; };
+    mqttSensors["temperaturetwo"] = []{ return temperaturetwo; };
     mqttSensors["heaterPower"] = []{ return pidOutput / 10; };
     mqttSensors["standbyModeTimeRemaining"] = []{ return standbyModeRemainingTimeMillis / 1000; };
     mqttSensors["currentKp"] = []{ return bPID.GetKp(); };
@@ -2119,6 +2124,7 @@ void setup() {
     // TSic 306 temp sensor
     #if TEMPSENSOR == 2
         temperature = Sensor2.getTemp(15);
+        temperaturetwo = Sensor2two.getTemp(15); // PB read second temp sensor
     #endif
 
     temperature -= brewTempOffset;

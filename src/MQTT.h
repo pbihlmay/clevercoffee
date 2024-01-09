@@ -445,7 +445,8 @@ int sendHASSIODiscoveryMsg() {
   DiscoveryObject aggIMax = GenerateNumberDevice("aggIMax", "aggIMax", PID_I_MAX_REGULAR_MIN, PID_I_MAX_REGULAR_MAX, 0.1, ""); 
   DiscoveryObject brewtime = GenerateNumberDevice("brewtime", "Brew time", BREW_TIME_MIN, BREW_TIME_MAX, 0.1, "s"); 
   // Sensor Devices 
-  DiscoveryObject actual_temperature = GenerateSensorDevice("temperature", "Boiler Temperature"); 
+  DiscoveryObject actual_temperature = GenerateSensorDevice("temperature", "Boiler Temperature");
+  DiscoveryObject outlet_temperature = GenerateSensorDevice("temperaturetwo", "Outlet Temperature");
   DiscoveryObject heaterPower = GenerateSensorDevice("heaterPower", "Heater Power", "%", "power_factor"); 
   DiscoveryObject machineStateDevice = GenerateSensorDevice("machineState", "Machine State", "null", "enum"); 
   // Switch Devices 
@@ -469,6 +470,7 @@ int sendHASSIODiscoveryMsg() {
     aggTv,
     aggIMax,
     actual_temperature,
+    outlet_temperature,
     heaterPower,
     machineStateDevice,
     brewtime,

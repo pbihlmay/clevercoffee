@@ -68,7 +68,7 @@ int writeSysParamsToStorage(void);
 #define PID_TV_BD_MIN 0
 #define PID_TV_BD_MAX 999
 #define BREW_SETPOINT_MIN 20
-#define BREW_SETPOINT_MAX 110
+#define BREW_SETPOINT_MAX 115   // PB increase value to 115
 #define STEAM_SETPOINT_MIN 100
 #define STEAM_SETPOINT_MAX 140
 #define BREW_TEMP_OFFSET_MIN 0
