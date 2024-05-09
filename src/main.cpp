@@ -172,6 +172,7 @@ Switch* brewSwitch;
 Switch* steamSwitch;
 
 TempSensor* tempSensor;
+TempSensor* tempSensor2;
 
 #include "isr.h"
 
@@ -303,7 +304,7 @@ double setpointTemp;
 double previousInput = 0;
 
 // Variables to hold PID values (Temp input, Heater output)
-double temperature, pidOutput;
+double temperature, temperaturetwo, pidOutput; // PB temperaturetwo for second Temp Sensor
 int steamON = 0;
 int steamFirstON = 0;
 
@@ -417,8 +418,8 @@ U8G2_SH1106_128X64_NONAME_F_4W_HW_SPI u8g2(U8G2_R0, OLED_CS, OLED_DC, /* reset=*
 #include "display/displayRotateUpright.h"
 #endif
 
-#if (DISPLAYTEMPLATE == 1)
-#include "display/displayTemplateStandard.h"
+#if (DISPLAYTEMPLATE == 1)  // PB implementation of own Display templates with two temperature sensors
+#include "display/displayTemplateStandardown.h"
 #elif (DISPLAYTEMPLATE == 2)
 #include "display/displayTemplateMinimal.h"
 #elif (DISPLAYTEMPLATE == 3)
@@ -1626,6 +1627,7 @@ void setup() {
 
     // Values reported to MQTT
     mqttSensors["temperature"] = [] { return temperature; };
+    mqttSensors["temperaturetwo"] = []{ return temperaturetwo; };
     mqttSensors["heaterPower"] = [] { return pidOutput / 10; };
     mqttSensors["standbyModeTimeRemaining"] = [] { return standbyModeRemainingTimeMillis / 1000; };
     mqttSensors["currentKp"] = [] { return bPID.GetKp(); };
@@ -1748,9 +1750,11 @@ void setup() {
     }
     else if (TEMP_SENSOR == 2) {
         tempSensor = new TempSensorTSIC(PIN_TEMPSENSOR);
+        tempSensor2 = new TempSensorTSIC(PIN_TEMPSENSORTWO)
     }
 
     temperature = tempSensor->getCurrentTemperature();
+    temperaturetwo = tempSensor2->getCurrentTemperature()
 
     temperature -= brewTempOffset;
 
@@ -1840,6 +1844,8 @@ void looppid() {
 
     // Update the temperature:
     temperature = tempSensor->getCurrentTemperature();
+    temperaturetwo = tempSensor2->getCurrentTemperature()
+
 
     if (machineState != kSteam) {
         temperature -= brewTempOffset;
