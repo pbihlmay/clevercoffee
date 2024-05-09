@@ -419,7 +419,7 @@ U8G2_SH1106_128X64_NONAME_F_4W_HW_SPI u8g2(U8G2_R0, OLED_CS, OLED_DC, /* reset=*
 #endif
 
 #if (DISPLAYTEMPLATE == 1)  // PB implementation of own Display templates with two temperature sensors
-#include "display/displayTemplateStandardown.h"
+#include "display/DisplaytemplateStandardown.h"
 #elif (DISPLAYTEMPLATE == 2)
 #include "display/displayTemplateMinimal.h"
 #elif (DISPLAYTEMPLATE == 3)
@@ -1750,11 +1750,11 @@ void setup() {
     }
     else if (TEMP_SENSOR == 2) {
         tempSensor = new TempSensorTSIC(PIN_TEMPSENSOR);
-        tempSensor2 = new TempSensorTSIC(PIN_TEMPSENSORTWO)
+        tempSensor2 = new TempSensorTSIC(PIN_TEMPSENSORTWO);
     }
 
     temperature = tempSensor->getCurrentTemperature();
-    temperaturetwo = tempSensor2->getCurrentTemperature()
+    temperaturetwo = tempSensor2->getCurrentTemperature();
 
     temperature -= brewTempOffset;
 
@@ -1844,7 +1844,7 @@ void looppid() {
 
     // Update the temperature:
     temperature = tempSensor->getCurrentTemperature();
-    temperaturetwo = tempSensor2->getCurrentTemperature()
+    temperaturetwo = tempSensor2->getCurrentTemperature();
 
 
     if (machineState != kSteam) {

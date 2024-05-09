@@ -22,8 +22,9 @@
 #define PIN_ROTARY_SW  5 // Rotary encoder switch
 
 // Sensors
-#define PIN_TEMPSENSOR  16
-#define PIN_WATERSENSOR 23
+#define PIN_TEMPSENSOR 16
+#define PIN_TEMPSENSORTWO 23     // PB second temp sensor
+#define PIN_WATERSENSOR 39
 #define PIN_HXDAT       32 // Brew scale data pin 1
 #define PIN_HXDAT2      25 // Brew scale data pin 2
 #define PIN_HXCLK       33 // Brew scale clock pin
