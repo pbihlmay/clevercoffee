@@ -68,7 +68,7 @@
 #define PID_EMA_FACTOR_MIN            0.0
 #define PID_EMA_FACTOR_MAX            1.0
 #define BREW_SETPOINT_MIN             20.0
-#define BREW_SETPOINT_MAX             110.0
+#define BREW_SETPOINT_MAX             115.0 // PB change from 110 to 115
 #define STEAM_SETPOINT_MIN            100.0
 #define STEAM_SETPOINT_MAX            140.0
 #define BREW_TEMP_OFFSET_MIN          0.0
