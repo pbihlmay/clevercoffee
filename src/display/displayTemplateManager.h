@@ -23,9 +23,9 @@ namespace Templates {
 #include "displayTemplateUpright.h"
     }
 
-    namespace StandardPB {
-#include "displayTemplateStandardPB.h"
-    }
+//    namespace StandardPB {
+//#include "displayTemplateStandardPB.h"
+//    }
 } // namespace Templates
 
 class DisplayTemplateManager {
@@ -36,7 +36,7 @@ class DisplayTemplateManager {
             TEMP_ONLY = 2,
             SCALE = 3,
             UPRIGHT = 4,
-            STANDARDPB = 5,
+//            STANDARDPB = 5,
         };
 
         static void initializeDisplay(const int templateId) {
@@ -58,9 +58,9 @@ class DisplayTemplateManager {
                 case UPRIGHT:
                     currentPrintScreen = &Templates::Upright::printScreen;
                     break;
-                case STANDARDPB:
-                    currentPrintScreen = &Templates::StandardPB::printScreen;
-                    break;
+//                case STANDARDPB:
+//                    currentPrintScreen = &Templates::StandardPB::printScreen;
+//                    break;
                 default:
                     currentPrintScreen = &Templates::Standard::printScreen;
                     break;
