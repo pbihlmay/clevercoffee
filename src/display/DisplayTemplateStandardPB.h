@@ -1,7 +1,7 @@
 /**
- * @file Displaytemplatestandard.h
+ * @file DisplayTemplateStandardPB.h
  *
- * @brief Standard display template
+ * @brief PB modified Standard display template
  *
  */
 
