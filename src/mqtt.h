@@ -73,7 +73,6 @@ inline void setupMqtt() {
     mqtt_hassio_discovery_prefix = registry.getParameterById("mqtt.hassio.prefix")->getValueAs<String>();
 }
 
-
 /**
  * @brief Check if MQTT is connected, if not reconnect. Abort function if offline or brew is running
  *      MQTT is also using maxWifiReconnects!
@@ -87,7 +86,7 @@ inline void checkMQTT() {
         if (!mqtt.connected()) {
             lastMQTTConnectionAttempt = millis();  // Reconnection Timer Function
             MQTTReCnctCount++;                     // Increment reconnection Counter
-            debugPrintf("Attempting MQTT reconnection: %i\n", MQTTReCnctCount);
+            LOGF(DEBUG, "Attempting MQTT reconnection: %i", MQTTReCnctCount);
 
             if (mqtt.connect(hostname.c_str(), mqtt_username.c_str(), mqtt_password.c_str(), topic_will, 0, true, "offline")) {
                 mqtt.subscribe(topic_set);
@@ -96,7 +95,7 @@ inline void checkMQTT() {
             } // Try to reconnect to the server; connect() is a blocking
               // function, watch the timeout!
             else {
-                debugPrintf("Failed to connect to MQTT due to reason: %i\n", mqtt.state());
+                LOGF(DEBUG, "Failed to connect to MQTT due to reason: %i", mqtt.state());
             }
         }
     }
@@ -107,7 +106,6 @@ inline void checkMQTT() {
     }
 }
 
-
 /**
  * @brief Publish Data to MQTT
  */
@@ -116,7 +114,6 @@ inline bool mqtt_publish(const char* reading, const char* payload, const boolean
     snprintf(topic, 120, "%s%s/%s", mqtt_topic_prefix.c_str(), hostname.c_str(), reading);
     return mqtt.publish(topic, payload, retain);
 }
-
 
 /**
  * @brief Publishes a large message to an MQTT topic, splitting it into smaller chunks if necessary.
@@ -154,7 +151,6 @@ inline int PublishLargeMessage(const String& topic, const String& largeMessage) 
         return publishResult ? 0 : -1; // Return 0 for success, -1 for failure
     }
 }
-
 
 /**
  * @brief Assign the value of the mqtt parameter to the associated variable
@@ -221,7 +217,6 @@ inline void assignMQTTParam(char* param, double value) {
     }
 }
 
-
 /**
  * @brief MQTT Callback Function: set Parameters through MQTT
  */
@@ -243,13 +238,13 @@ inline void mqtt_callback(const char* topic, const byte* data, const unsigned in
         LOGF(WARNING, "Invalid MQTT topic/command: %s", topic_str);
         return;
     }
-    debugPrintf("Received MQTT command %s %s\n", topic_str, data_str);
+
+    LOGF(DEBUG, "Received MQTT command %s %s\n", topic_str, data_str);
 
     //convert received string value to double assuming it's a number
     sscanf(data_str, "%lf", &data_double);
     assignMQTTParam(configVar, data_double);
 }
-
 
 /**
  * @brief Send all current system parameter values to MQTT if changed, exit early if process is taking too long and return next loop
