@@ -62,7 +62,6 @@ inline bool checkBrewStates() {
  */
 inline void valveSafetyShutdownCheck() {
     if (!checkBrewActive() && !checkBrewStates()) {
-        currBrewState == kBrewIdle; // reset state to idle if not in an active brew/flush state
         valveRelay->off();
     }
 }
@@ -272,11 +271,17 @@ inline bool brew() {
                     currBrewState = kPreinfusion;
                 }
 
-                if (config.get<bool>("hardware.sensors.scale.enabled") && config.get<int>("hardware.sensors.scale.type") == 2 && config.get<bool>("brew.by_weight.enabled") && config.get<bool>("brew.by_weight.auto_tare")) {
-                    LOG(INFO, "Tare scale");
+                if (scale && config.get<bool>("hardware.sensors.scale.enabled") && config.get<int>("hardware.sensors.scale.type") == 2) {
+                    const auto bleScale = static_cast<BluetoothScale*>(scale);
 
-                    if (scale) {
-                        scale->tare();
+                    if (config.get<bool>("display.blescale_brew_timer")) {
+                        bleScale->resetTimer();
+                        bleScale->startTimer();
+                    }
+
+                    if (config.get<bool>("brew.by_weight.enabled") && config.get<bool>("brew.by_weight.auto_tare")) {
+                        LOG(INFO, "Tare scale");
+                        bleScale->tare();
 
                         // Mark that auto-tare is in progress for Bluetooth scales
                         autoTareInProgress = true;
@@ -317,32 +322,40 @@ inline bool brew() {
                 pumpRelay->on();
                 debugPumpState("BrewRunning", "on");
 
-                const auto targetBrewWeight = ParameterRegistry::getInstance().getParameterById("brew.by_weight.target_weight")->getValueAs<float>();
-
                 if (currBrewTime > totalTargetBrewTime && brewByTimeEnabled) {
                     LOG(INFO, "Brew reached time target");
                     currBrewState = kBrewFinished;
                 }
-                else if (config.get<bool>("hardware.sensors.scale.enabled") && currBrewWeight > targetBrewWeight && brewByWeightEnabled) {
-                    LOG(INFO, "Brew reached weight target");
-                    currBrewState = kBrewFinished;
+                else if (config.get<bool>("hardware.sensors.scale.enabled")) {
+                    const auto targetBrewWeight = ParameterRegistry::getInstance().getParameterById("brew.by_weight.target_weight")->getValueAs<float>();
+
+                    if (currBrewWeight > targetBrewWeight && brewByWeightEnabled) {
+                        LOG(INFO, "Brew reached weight target");
+                        currBrewState = kBrewFinished;
+                    }
                 }
 
                 break;
             }
 
         case kBrewFinished:
-            valveRelay->off();
-            pumpRelay->off();
-            debugPumpState("BrewFinished", "off");
+            {
+                valveRelay->off();
+                pumpRelay->off();
+                debugPumpState("BrewFinished", "off");
 
-            brewSwitchWasOff = false;
-            LOG(INFO, "Brew finished");
-            LOGF(INFO, "Shot time: %4.1f s", currBrewTime / 1000);
-            LOG(INFO, "Brew idle");
-            currBrewState = kBrewIdle;
+                brewSwitchWasOff = false;
+                LOG(INFO, "Brew finished");
+                LOGF(INFO, "Shot time: %4.1f s", currBrewTime / 1000);
+                LOG(INFO, "Brew idle");
+                currBrewState = kBrewIdle;
 
-            break;
+                if (scale && config.get<bool>("hardware.sensors.scale.enabled") && config.get<int>("hardware.sensors.scale.type") == 2 && config.get<bool>("display.blescale_brew_timer")) {
+                    static_cast<BluetoothScale*>(scale)->stopTimer();
+                }
+
+                break;
+            }
 
         default:
             currBrewState = kBrewIdle;
@@ -455,8 +468,15 @@ inline void backflush() {
                 pumpRelay->off();
                 debugPumpState("Backflush", "off");
                 LOG(INFO, "Backflush: flushing into drip tray");
-                currBackflushState = kBackflushFlushing;
+
+                if (currBackflushCycles == backflushCycles) {
+                    currBackflushState = kBackflushEnding;
+                }
+                else {
+                    currBackflushState = kBackflushFlushing;
+                }
             }
+
             break;
 
         case kBackflushFlushing:
@@ -475,6 +495,14 @@ inline void backflush() {
                     currBackflushState = kBackflushFinished;
                 }
             }
+
+            break;
+
+        case kBackflushEnding:
+            if (millis() - startingTime > backflushFlushTime * 1000) {
+                currBackflushState = kBackflushFinished;
+            }
+
             break;
 
         case kBackflushFinished:

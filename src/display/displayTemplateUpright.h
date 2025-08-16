@@ -41,10 +41,9 @@ inline void printScreen() {
         u8g2->drawXBMP(8, 50, Water_Tank_Empty_Logo_width, Water_Tank_Empty_Logo_height, Water_Tank_Empty_Logo);
     }
     else if (machineState == kSensorError) {
-        u8g2->setFont(u8g2_font_profont11_tf);
-        displayMessage(langstring_error_tsensor_ur[0], langstring_error_tsensor_ur[1], String(temperature), langstring_error_tsensor_ur[2], langstring_error_tsensor_ur[3], langstring_error_tsensor_ur[4]);
+        displayWrappedMessage(String(langstring_error_tsensor[0]) + String(temperature) + '\n' + String(langstring_error_tsensor[1]));
     }
-    else if (config.get<bool>("display.pid_off_logo") && machineState == kStandby) {
+    else if (machineState == kStandby) {
         u8g2->drawXBMP(6, 50, Off_Logo_width, Off_Logo_height, Off_Logo);
         u8g2->setCursor(1, 110);
         u8g2->setFont(u8g2_font_profont10_tf);
@@ -72,7 +71,7 @@ inline void printScreen() {
         u8g2->drawLine(1, 126, pidOutput / 16.13 + 1, 126);
 
         // logos that only fill the lower half leaving temperatures, top and bottom boxes
-        if (config.get<bool>("display.pid_off_logo") && machineState == kPidDisabled) {
+        if (machineState == kPidDisabled) {
             u8g2->drawXBMP(6, 50, Off_Logo_width, Off_Logo_height, Off_Logo);
             u8g2->setCursor(1, 110);
             u8g2->setFont(u8g2_font_profont10_tf);
@@ -88,7 +87,7 @@ inline void printScreen() {
         else if (config.get<bool>("display.heating_logo") && machineState == kPidNormal && setpoint - temperature > 5.0) {
             // For status info
             u8g2->drawXBMP(12, 50, Heating_Logo_width, Heating_Logo_height, Heating_Logo);
-            u8g2->setFont(u8g2_font_fub17_tf);
+            u8g2->setFont(u8g2_font_fub17_tr);
             u8g2->setCursor(8, 90);
             u8g2->print(temperature, 1);
         }
@@ -104,10 +103,14 @@ inline void printScreen() {
                 u8g2->setCursor(1, 55);
             }
 
-            u8g2->setFont(u8g2_font_profont22_tf);
+            u8g2->setFont(u8g2_font_profont22_tr);
 
             if (machineState == kManualFlush) {
                 u8g2->print("FLUSH");
+            }
+            else if (machineState == kBackflush) {
+                u8g2->setFont(u8g2_font_profont15_tr);
+                u8g2->print("BACKFLUSH");
             }
             else if (shouldDisplayBrewTimer()) {
                 u8g2->print("BREW");
