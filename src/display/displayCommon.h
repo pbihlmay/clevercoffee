@@ -391,7 +391,7 @@ inline void displayProgressbar(const int value, const int x, const int y, const 
 }
 
 inline void displayBluetoothStatus(const int x, const int y) {
-    if (scale) {
+    if (scale && config.get<bool>("hardware.sensors.scale.enabled") && config.get<int>("hardware.sensors.scale.type") == 2) {
         if (const bool connected = scale->isConnected(); connected) {
             u8g2->drawXBMP(x, y, 8, 9, Bluetooth_Icon);
         }
@@ -416,9 +416,7 @@ inline void displayStatusbar() {
         u8g2->print(langstring_offlinemode);
     }
 
-    if (config.get<bool>("hardware.sensors.scale.enabled") && config.get<int>("hardware.sensors.scale.type") == 2) {
-        displayBluetoothStatus(24, 1);
-    }
+    displayBluetoothStatus(24, 1);
 
     const auto format = "%02luh %02lum";
     displayUptime(84, 0, format);
@@ -584,7 +582,7 @@ inline bool displayFullscreenBrewTimer() {
         if (config.get<int>("display.template") == 4) {
             u8g2->drawXBMP(12, 12, Brew_Cup_Logo_width, Brew_Cup_Logo_height, Brew_Cup_Logo);
 
-            if (config.get<bool>("hardware.sensors.scale.enabled")) {
+            if (scale && config.get<bool>("hardware.sensors.scale.enabled")) {
                 u8g2->setFont(u8g2_font_profont22_tr);
                 u8g2->setCursor(5, 70);
                 u8g2->print(currBrewTime / 1000, 1);
@@ -601,7 +599,7 @@ inline bool displayFullscreenBrewTimer() {
         else {
             u8g2->drawXBMP(-1, 11, Brew_Cup_Logo_width, Brew_Cup_Logo_height, Brew_Cup_Logo);
 
-            if (config.get<bool>("hardware.sensors.scale.enabled")) {
+            if (scale && config.get<bool>("hardware.sensors.scale.enabled")) {
                 u8g2->setFont(u8g2_font_profont22_tr);
                 u8g2->setCursor(64, 15);
                 u8g2->print(currBrewTime / 1000, 1);
@@ -680,8 +678,8 @@ inline bool displayFullscreenHotWaterTimer() {
  */
 inline bool displayOfflineMode() {
 
-    if (displayOffline > 0 && displayOffline < 20) {
-        displayWrappedMessage("Begin Fallback,\nNo Wifi");
+    if (displayOffline > 0 && displayOffline < 50) {
+        displayWrappedMessage(String(langstring_nowifi[0]) + String(langstring_nowifi[1]) + "\n" + String(langstring_offlineAP) + "\n" + hostname + "\n" + WiFi.softAPIP().toString());
         displayOffline++;
         return true;
     }
@@ -694,12 +692,16 @@ inline bool displayOfflineMode() {
  */
 inline bool displayMachineState() {
 
+    if (shouldDisplayBrewTimer()) {
+        return false;
+    }
+
     if (displayOfflineMode()) {
         return true;
     }
 
     // Show the heating logo when we are in regular PID mode and more than 5degC below the set point
-    if (featureHeatingLogo > 0 && (machineState == kPidNormal || machineState == kSteam) && setpoint - temperature > 5.) {
+    if (featureHeatingLogo && (machineState == kPidNormal || machineState == kSteam) && setpoint - temperature > 5.) {
         // For status info
         u8g2->clearBuffer();
 
@@ -707,8 +709,16 @@ inline bool displayMachineState() {
 
         u8g2->drawXBMP(0, 20, Heating_Logo_width, Heating_Logo_height, Heating_Logo);
         u8g2->setFont(u8g2_font_fub25_tn);
-        u8g2->setCursor(50, 30);
-        u8g2->print(temperature, 1);
+
+        if (temperature < 99.95) {
+            u8g2->setCursor(50, 30);
+            u8g2->print(temperature, 1);
+        }
+        else {
+            u8g2->setCursor(58, 30);
+            u8g2->print(temperature, 0);
+        }
+
         u8g2->drawCircle(122, 32, 3);
 
         u8g2->sendBuffer();

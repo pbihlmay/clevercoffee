@@ -62,6 +62,25 @@ enum MachineState {
     kEepromError = 110,
 };
 
+struct EnumOption {
+        MachineState state;
+        const char* name;
+};
+
+constexpr EnumOption machineStateOptions[] = {{kInit, "Init"},
+                                              {kPidNormal, "PID Normal"},
+                                              {kBrew, "Brew"},
+                                              {kManualFlush, "Manual Flush"},
+                                              {kHotWater, "Hot Water"},
+                                              {kSteam, "Steam"},
+                                              {kBackflush, "Backflush"},
+                                              {kWaterTankEmpty, "Water Tank Empty"},
+                                              {kEmergencyStop, "Emergency Stop"},
+                                              {kPidDisabled, "PID Disabled"},
+                                              {kStandby, "Standby Mode"},
+                                              {kSensorError, "Sensor Error"},
+                                              {kEepromError, "EEPROM Error"}};
+
 MachineState machineState = kInit;
 MachineState lastmachinestate = kInit;
 int lastmachinestatepid = -1;
@@ -108,6 +127,7 @@ bool websiteUpdateRunning = false;
 bool mqttUpdateRunning = false;
 bool hassioUpdateRunning = false;
 bool temperatureUpdateRunning = false;
+unsigned long lastDisplayUpdate = 0;
 
 #include "utils/timingDebug.h"
 
@@ -121,13 +141,12 @@ LED* statusLed = nullptr;
 LED* brewLed = nullptr;
 LED* steamLed = nullptr;
 
-GPIOPin heaterRelayPin(PIN_HEATER, GPIOPin::OUT);
+GPIOPin* heaterRelayPin = nullptr;
+GPIOPin* pumpRelayPin = nullptr;
+GPIOPin* valveRelayPin = nullptr;
+
 Relay* heaterRelay = nullptr;
-
-GPIOPin pumpRelayPin(PIN_PUMP, GPIOPin::OUT);
 Relay* pumpRelay = nullptr;
-
-GPIOPin valveRelayPin(PIN_VALVE, GPIOPin::OUT);
 Relay* valveRelay = nullptr;
 
 Switch* powerSwitch = nullptr;
@@ -151,10 +170,7 @@ void loopLED();
 void checkWaterTank();
 void printMachineState();
 char const* machinestateEnumToString(MachineState machineState);
-char* number2string(double in);
-char* number2string(float in);
-char* number2string(int in);
-char* number2string(unsigned int in);
+inline std::vector<const char*> getMachineStateOptions();
 float filterPressureValue(float input);
 int writeSysParamsToMQTT(bool continueOnError);
 void updateStandbyTimer();
@@ -220,6 +236,7 @@ constexpr int waterTankCountsNeeded = 3;   // Number of same readings to change 
 
 // PID controller
 unsigned long previousMillistemp; // initialisation at the end of init()
+unsigned long previousMillisTimer;
 
 double setpointTemp;
 double previousInput = 0;
@@ -303,12 +320,23 @@ void testEmergencyStop() {
  * @brief Switch to offline mode if maxWifiReconnects were exceeded during boot
  */
 void initOfflineMode() {
-    if (config.get<bool>("hardware.oled.enabled")) {
-        displayOffline = 1;
-    }
-
     LOG(INFO, "Start offline mode with eeprom values, no wifi :(");
     offlineMode = true;
+    mqtt_enabled = false;
+    mqtt_hassio_enabled = false;
+    WiFi.softAP(hostname.c_str(), pass);
+
+    if ("hardware.oled.enabled") {
+        if (!config.get<bool>("system.offline_mode")) {
+            displayOffline = 1; // don't block, this may have happened at any time
+        }
+        else {
+            displayLogo(String(langstring_offlineAP) + "\n" + hostname);
+            delay(2000); // blocking ok as this happens during boot
+            displayLogo(hostname + "\n" + WiFi.softAPIP().toString());
+            delay(2000);
+        }
+    }
 }
 
 /**
@@ -362,38 +390,6 @@ void checkWifi() {
             wifiReconnects = 0;
         }
     }
-}
-
-char number2string_double[22];
-
-char* number2string(const double in) {
-    snprintf(number2string_double, sizeof(number2string_double), "%0.2f", in);
-
-    return number2string_double;
-}
-
-char number2string_float[22];
-
-char* number2string(const float in) {
-    snprintf(number2string_float, sizeof(number2string_float), "%0.2f", in);
-
-    return number2string_float;
-}
-
-char number2string_int[22];
-
-char* number2string(const int in) {
-    snprintf(number2string_int, sizeof(number2string_int), "%d", in);
-
-    return number2string_int;
-}
-
-char number2string_uint[22];
-
-char* number2string(const unsigned int in) {
-    snprintf(number2string_uint, sizeof(number2string_uint), "%u", in);
-
-    return number2string_uint;
 }
 
 /**
@@ -570,6 +566,15 @@ void handleMachineState() {
                 machineState = kPidNormal;
             }
 
+            if (checkHotWaterStates() && standbyModeOn) {
+                resetStandbyTimer(machineState);
+            }
+
+            if (standbyModeOn && standbyModeRemainingTimeMillis == 0) {
+                machineState = kStandby;
+                setRuntimePidState(false);
+            }
+
             if (emergencyStop) {
                 machineState = kEmergencyStop;
             }
@@ -589,6 +594,22 @@ void handleMachineState() {
 
             if (!backflushOn) {
                 machineState = kPidNormal;
+            }
+
+            if (currBackflushState == kBackflushIdle) {
+                if (manualFlush()) {
+                    machineState = kManualFlush;
+                }
+            }
+            else {
+                if (standbyModeOn) {
+                    resetStandbyTimer(machineState);
+                }
+            }
+
+            if (standbyModeOn && standbyModeRemainingTimeMillis == 0) {
+                machineState = kStandby;
+                setRuntimePidState(false);
             }
 
             if (emergencyStop) {
@@ -648,6 +669,11 @@ void handleMachineState() {
                 machineState = kPidNormal;
             }
 
+            if (standbyModeOn && standbyModeRemainingTimeMillis == 0) {
+                machineState = kStandby;
+                setRuntimePidState(false);
+            }
+
             if (tempSensor != nullptr && tempSensor->hasError()) {
                 machineState = kSensorError;
             }
@@ -656,9 +682,7 @@ void handleMachineState() {
 
         case kStandby:
             {
-                bool oledEnabled = config.get<bool>("hardware.oled.enabled");
-
-                if (standbyModeRemainingTimeDisplayOffMillis == 0 && oledEnabled) {
+                if (standbyModeRemainingTimeDisplayOffMillis == 0 && u8g2 != nullptr) {
                     u8g2->setPowerSave(1);
                 }
 
@@ -666,7 +690,7 @@ void handleMachineState() {
                     machineState = kPidNormal;
                     resetStandbyTimer(machineState);
 
-                    if (oledEnabled) {
+                    if (u8g2 != nullptr) {
                         u8g2->setPowerSave(0);
                     }
                 }
@@ -675,7 +699,7 @@ void handleMachineState() {
                     machineState = kSteam;
                     resetStandbyTimer(machineState);
 
-                    if (oledEnabled) {
+                    if (u8g2 != nullptr) {
                         u8g2->setPowerSave(0);
                     }
                 }
@@ -685,7 +709,7 @@ void handleMachineState() {
                     machineState = kHotWater;
                     resetStandbyTimer(machineState);
 
-                    if (oledEnabled) {
+                    if (u8g2 != nullptr) {
                         u8g2->setPowerSave(0);
                     }
                 }
@@ -695,7 +719,7 @@ void handleMachineState() {
                     machineState = kBrew;
                     resetStandbyTimer(machineState);
 
-                    if (oledEnabled) {
+                    if (u8g2 != nullptr) {
                         u8g2->setPowerSave(0);
                     }
                 }
@@ -705,7 +729,7 @@ void handleMachineState() {
                     machineState = kManualFlush;
                     resetStandbyTimer(machineState);
 
-                    if (oledEnabled) {
+                    if (u8g2 != nullptr) {
                         u8g2->setPowerSave(0);
                     }
                 }
@@ -714,13 +738,13 @@ void handleMachineState() {
                     machineState = kBackflush;
                     resetStandbyTimer(machineState);
 
-                    if (oledEnabled) {
+                    if (u8g2 != nullptr) {
                         u8g2->setPowerSave(0);
                     }
                 }
 
                 if (tempSensor != nullptr && tempSensor->hasError()) {
-                    if (oledEnabled) {
+                    if (u8g2 != nullptr) {
                         u8g2->setPowerSave(0);
                     }
 
@@ -753,37 +777,24 @@ void printMachineState() {
     LOGF(DEBUG, "new machineState: %s -> %s", machinestateEnumToString(lastmachinestate), machinestateEnumToString(machineState));
 }
 
-char const* machinestateEnumToString(const MachineState machineState) {
-    switch (machineState) {
-        case kInit:
-            return "Init";
-        case kPidNormal:
-            return "PID Normal";
-        case kBrew:
-            return "Brew";
-        case kManualFlush:
-            return "Manual Flush";
-        case kHotWater:
-            return "Hot Water";
-        case kSteam:
-            return "Steam";
-        case kBackflush:
-            return "Backflush";
-        case kWaterTankEmpty:
-            return "Water Tank Empty";
-        case kEmergencyStop:
-            return "Emergency Stop";
-        case kPidDisabled:
-            return "PID Disabled";
-        case kStandby:
-            return "Standby Mode";
-        case kSensorError:
-            return "Sensor Error";
-        case kEepromError:
-            return "EEPROM Error";
+inline const char* machinestateEnumToString(MachineState state) {
+    for (auto& opt : machineStateOptions) {
+        if (opt.state == state) {
+            return opt.name;
+        }
     }
 
     return "Unknown";
+}
+
+inline std::vector<const char*> getMachineStateOptions() {
+    std::vector<const char*> options;
+
+    for (auto& opt : machineStateOptions) {
+        options.push_back(opt.name);
+    }
+
+    return options;
 }
 
 /**
@@ -794,8 +805,6 @@ void wiFiSetup() {
     wm.setConnectTimeout(10); // using 10s to connect to WLAN, 5s is sometimes too short!
     wm.setBreakAfterConfig(true);
     wm.setConnectRetries(3);
-
-    bool oledEnabled = config.get<bool>("hardware.oled.enabled");
 
     if (wm.getWiFiIsSaved()) {
         LOG(INFO, "Connecting to WiFi");
@@ -811,8 +820,8 @@ void wiFiSetup() {
         wifiConnected = wm.startConfigPortal(hostname.c_str(), pass);
         wm.setConfigPortalTimeout(60); // sec timeout for captive portal
 
-        if (oledEnabled) {
-            displayLogo("Starting Portal AP\n" + hostname);
+        if (u8g2 != nullptr) {
+            displayLogo(String(langstring_portalAP) + "\n" + hostname);
         }
 
         wifiConnected = wm.startConfigPortal(hostname.c_str(), pass);
@@ -838,8 +847,8 @@ void wiFiSetup() {
         snprintf(fullMac, sizeof(fullMac), "%02X:%02X:%02X:%02X:%02X:%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
         LOGF(INFO, "MAC-ADDRESS: %s", fullMac);
 
-        if (oledEnabled) {
-            displayLogo(String(langstring_connectwifi1) + '\n' + wm.getWiFiSSID(true));
+        if (u8g2 != nullptr) {
+            displayLogo(String(langstring_connectwifi) + '\n' + wm.getWiFiSSID(true));
             delay(1500);
 
             if (config.get<int>("display.template") == 4) {
@@ -858,14 +867,14 @@ void wiFiSetup() {
     else {
         LOG(INFO, "WiFi connection timed out...");
 
-        if (oledEnabled) {
+        if (u8g2 != nullptr) {
             displayLogo(String(langstring_nowifi[0]) + '\n' + String(langstring_nowifi[1]));
         }
 
         wm.disconnect();
         delay(1000);
 
-        offlineMode = true;
+        initOfflineMode();
     }
 }
 
@@ -880,6 +889,23 @@ void wiFiReset() {
     ESP.restart();
 }
 
+void testTimer(void) {
+    static unsigned int lastIsrWatchdog = 0;
+
+    if (millis() - previousMillisTimer > 2000) {
+        if ((isrWatchdog == lastIsrWatchdog) && (isTimer1Enabled())) {
+            LOG(ERROR, "Timer1 stopped, restarting timer");
+            heaterRelay->off();
+            disableTimer1();
+            delay(10);
+            enableTimer1();
+        }
+
+        previousMillisTimer = millis();
+        lastIsrWatchdog = isrWatchdog;
+    }
+}
+
 extern const char sysVersion[] = STR(AUTO_VERSION);
 
 void setup() {
@@ -891,6 +917,10 @@ void setup() {
 
     if (!config.begin()) {
         LOG(ERROR, "Failed to load config from filesystem!");
+    }
+
+    if (config.get<bool>("hardware.leds.steam.enabled")) {
+        LOG(WARNING, "Steam LED interferes with USB console communication");
     }
 
     hostname = config.get<String>("system.hostname");
@@ -958,16 +988,19 @@ void setup() {
 
     initTimer1();
 
+    heaterRelayPin = new GPIOPin(PIN_HEATER, GPIOPin::OUT);
     const auto heaterTriggerType = static_cast<Relay::TriggerType>(config.get<int>("hardware.relays.heater.trigger_type"));
-    heaterRelay = new Relay(heaterRelayPin, heaterTriggerType);
+    heaterRelay = new Relay(*heaterRelayPin, heaterTriggerType);
     heaterRelay->off();
 
+    valveRelayPin = new GPIOPin(PIN_VALVE, GPIOPin::OUT);
     const auto valveTriggerType = static_cast<Relay::TriggerType>(config.get<int>("hardware.relays.valve.trigger_type"));
-    valveRelay = new Relay(valveRelayPin, valveTriggerType);
+    valveRelay = new Relay(*valveRelayPin, valveTriggerType);
     valveRelay->off();
 
+    pumpRelayPin = new GPIOPin(PIN_PUMP, GPIOPin::OUT);
     const auto pumpTriggerType = static_cast<Relay::TriggerType>(config.get<int>("hardware.relays.pump.trigger_type"));
-    pumpRelay = new Relay(pumpRelayPin, pumpTriggerType);
+    pumpRelay = new Relay(*pumpRelayPin, pumpTriggerType);
     pumpRelay->off();
 
     if (config.get<bool>("hardware.switches.power.enabled")) {
@@ -1075,7 +1108,10 @@ void setup() {
             }
 
             if (config.get<bool>("hardware.sensors.scale.enabled")) {
-                mqttVars["targetBrewWeight"] = "brew.by_weight.target_weight";
+                if (config.get<bool>("brew.mode") == 1) {
+                    mqttVars["targetBrewWeight"] = "brew.by_weight.target_weight";
+                }
+
                 mqttVars["scaleCalibration"] = "hardware.sensors.scale.calibration";
 
                 if (config.get<int>("hardware.sensors.scale.type") == 0) {
@@ -1108,8 +1144,10 @@ void setup() {
     }
     else {
         wm.disconnect();
-        offlineMode = true;
         setRuntimePidState(true);
+        delay(2000);
+        initOfflineMode();
+        serverSetup();
     }
 
     // Start the logger
@@ -1147,17 +1185,21 @@ void setup() {
     windowStartTime = currentTime;
     previousMillisMQTT = currentTime;
     lastMQTTConnectionAttempt = currentTime;
+    previousMillisTimer = currentTime;
 
     // Init Scale
     if (config.get<bool>("hardware.sensors.scale.enabled")) {
         initScale();
     }
-    else if (config.get<bool>("hardware.oled.enabled")) {
-        delay(2000); // give time to display IP address
-    }
 
     if (config.get<bool>("hardware.sensors.pressure.enabled")) {
         previousMillisPressure = currentTime;
+    }
+
+    if (u8g2 != nullptr) {
+        if (!(config.get<bool>("hardware.sensors.scale.enabled") && config.get<int>("hardware.sensors.scale.type") < 2)) {
+            delay(2000); // add delay if not hx711 to give time to display IP address
+        }
     }
 
     setupDone = true;
@@ -1296,9 +1338,7 @@ void loopPid() {
         websiteUpdateRunning = true;
 
         // send temperatures to website endpoint
-        if (WiFi.status() == WL_CONNECTED && !offlineMode) {
-            sendTempEvent(temperature, brewSetpoint, pidOutput / 10); // pidOutput is promill, so /10 to get percent value
-        }
+        sendTempEvent(temperature, brewSetpoint, pidOutput / 10); // pidOutput is promill, so /10 to get percent value
 
         lastTempEvent = millis();
 
@@ -1326,7 +1366,7 @@ void loopPid() {
         }
     }
 
-    if (config.get<bool>("hardware.sensors.scale.enabled")) {
+    if (scale) {
         checkWeight();    // Check Weight Scale in the loop
         shotTimerScale(); // Calculation of weight of shot while brew is running
     }
@@ -1354,6 +1394,7 @@ void loopPid() {
     handleMachineState();
     hotWaterHandler();
     valveSafetyShutdownCheck();
+    testTimer();
 
     if (config.get<bool>("hardware.switches.brew.enabled")) {
         shouldDisplayBrewTimer();
@@ -1361,21 +1402,31 @@ void loopPid() {
 
     displayUpdateRunning = false;
 
-    if (config.get<bool>("hardware.oled.enabled")) {
+    if (u8g2 != nullptr) {
 
         // update display on loops that have not had other major tasks running, if blocked it will send in the next loop (average 0.5ms)
-        if (!websiteUpdateRunning && !mqttUpdateRunning && !hassioUpdateRunning && !temperatureUpdateRunning && (standbyModeRemainingTimeDisplayOffMillis > 0)) {
+        if ((!websiteUpdateRunning && !mqttUpdateRunning && !hassioUpdateRunning && !temperatureUpdateRunning) || (millis() - lastDisplayUpdate > 500)) {
 
-            // displayUpdateRunning currently doesn't block anything as it is near the end of the loop, but if this code block moves it can be used to block other processes
-            // sendBuffer() takes around 35ms so it flags that it has happened
-            if (displayBufferReady) {
-                u8g2->sendBuffer();
-                displayBufferReady = false;
-                displayUpdateRunning = true;
+            if (standbyModeRemainingTimeDisplayOffMillis > 0) {
+
+                // displayUpdateRunning currently doesn't block anything as it is near the end of the loop, but if this code block moves it can be used to block other processes
+                // sendBuffer() takes around 35ms so it flags that it has happened
+                if (displayBufferReady) {
+                    u8g2->sendBuffer();
+                    displayBufferReady = false;
+                    displayUpdateRunning = true;
+                }
+                else {
+                    printDisplayTimer();
+
+                    if (millis() - lastDisplayUpdate > 500) {
+                        u8g2->sendBuffer();
+                        displayBufferReady = false;
+                        displayUpdateRunning = true;
+                    }
+                }
             }
-            else {
-                printDisplayTimer();
-            }
+            lastDisplayUpdate = millis();
         }
     }
 

@@ -197,11 +197,9 @@ inline void checkBrewSwitch() {
  */
 inline void debugPumpState(String label, String state) {
     hotWaterStateDebug = state;
-    IFLOG(DEBUG) {
-        if (hotWaterStateDebug != lastHotWaterStateDebug) {
-            LOGF(DEBUG, "Hot water state: %s - BrewHandler: %s", hotWaterStateDebug, label);
-            lastHotWaterStateDebug = hotWaterStateDebug;
-        }
+    if (hotWaterStateDebug != lastHotWaterStateDebug) {
+        LOGF(DEBUG, "Hot water state: %s - BrewHandler: %s", hotWaterStateDebug, label);
+        lastHotWaterStateDebug = hotWaterStateDebug;
     }
 }
 
@@ -266,6 +264,10 @@ inline bool brew() {
                     LOG(INFO, "Brew running");
                     currBrewState = kBrewRunning;
                 }
+                else if (preinfusion == 0) {
+                    LOG(INFO, "Preinfusion was zero, Preinfusion pause running");
+                    currBrewState = kPreinfusionPause;
+                }
                 else {
                     LOG(INFO, "Preinfusion running");
                     currBrewState = kPreinfusion;
@@ -326,7 +328,7 @@ inline bool brew() {
                     LOG(INFO, "Brew reached time target");
                     currBrewState = kBrewFinished;
                 }
-                else if (config.get<bool>("hardware.sensors.scale.enabled")) {
+                else if (scale && config.get<bool>("hardware.sensors.scale.enabled")) {
                     const auto targetBrewWeight = ParameterRegistry::getInstance().getParameterById("brew.by_weight.target_weight")->getValueAs<float>();
 
                     if (currBrewWeight > targetBrewWeight && brewByWeightEnabled) {

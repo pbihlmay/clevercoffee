@@ -600,6 +600,29 @@ void ParameterRegistry::initialize(Config& config) {
         "full screen logo will be shown if temperature is 5°C below setpoint"
     );
 
+    addEnumConfigParam(
+        "display.blinking.mode",
+        "Set temperature display blinking",
+        sDisplaySection,
+        910,
+        nullptr,
+        (const char* const[]){"Off", "Near Setpoint", "Away From Setpoint"},
+        3,
+        "Enable blinking of temperature based on distance to setpoint"
+    );
+
+    addNumericConfigParam<double>(
+        "display.blinking.delta",
+        "Delta to activate blinking",
+        kDouble,
+        sDisplaySection,
+        911,
+        nullptr,
+        0.2,
+        10,
+        "Delta from setpoint for blinking temperature display"
+    );
+
     // MQTT section
     addBoolConfigParam(
         "mqtt.enabled",
@@ -729,7 +752,7 @@ void ParameterRegistry::initialize(Config& config) {
         1202,
         nullptr,
         USERNAME_MAX_LENGTH,
-        "Username for accessing the website and authenticating web requests. "
+        "Username for accessing the website and authenticating web requests"
     );
 
     addStringConfigParam(
@@ -739,7 +762,16 @@ void ParameterRegistry::initialize(Config& config) {
         1203,
         nullptr,
         PASSWORD_MAX_LENGTH,
-        "Password for accessing the website and authenticating web requests."
+        "Password for accessing the website and authenticating web requests"
+    );
+
+    addBoolConfigParam(
+        "system.offline_mode",
+        "Offline Mode",
+        sSystemSection,
+        1204,
+        nullptr,
+        "Disable wifi and start an access point to display the website"
     );
 
     // Debugging Checkboxes
@@ -1073,7 +1105,7 @@ void ParameterRegistry::initialize(Config& config) {
         sHardwareSensorSection,
         2432,
         nullptr,
-        (const char* const[]){"HX711 (2 load cells)", "HX711 (1 load cell)", "Bluetooth"},
+        (const char* const[]){"HX711 (2 load cell controllers)", "HX711 (1 load cell controller)", "Bluetooth"},
         3,
         "Integrated HX711-based scale with different load cell configurations or Bluetooth Low Energy scales"
     );
@@ -1111,7 +1143,7 @@ void ParameterRegistry::initialize(Config& config) {
         nullptr,
         SCALE_CALIBRATION_MIN, SCALE_CALIBRATION_MAX,
         "Secondary scale calibration factor (for dual load cell setups)",
-        [&config] { return config.get<int>("hardware.sensors.scale.type") < 2; }
+        [&config] { return config.get<int>("hardware.sensors.scale.type") == 0; }
     );
 
     addNumericConfigParam<double>(

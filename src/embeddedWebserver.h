@@ -26,9 +26,9 @@ inline double curTemp = 0.0;
 inline double tTemp = 0.0;
 inline double hPower = 0.0;
 
-#define HISTORY_LENGTH 600 // 30 mins of values (20 vals/min * 60 min) = 600 (7,2kb)
+#define HISTORY_LENGTH 600 // 20 mins of values (30 vals/min * 20 min) = 600 (3.6kb)
 
-static float tempHistory[3][HISTORY_LENGTH] = {};
+static int16_t tempHistory[3][HISTORY_LENGTH] = {};
 inline int historyCurrentIndex = 0;
 inline int historyValueCount = 0;
 
@@ -161,24 +161,10 @@ inline void paramToJson(const String& name, const std::shared_ptr<Parameter>& pa
     doc["max"] = param->getMaxValue();
 }
 
-inline String getHeader(const String& varName) {
-    static const std::unordered_map<std::string, const char*> headers = {
-        {"FONTAWESOME", R"(<link href="/css/fontawesome-6.2.1.min.css" rel="stylesheet">)"},       {"BOOTSTRAP", R"(<link href="/css/bootstrap-5.2.3.min.css" rel="stylesheet">)"},
-        {"BOOTSTRAP_BUNDLE", "<script src=\"/js/bootstrap.bundle.5.2.3.min.js\" defer></script>"}, {"VUEJS", "<script src=\"/js/vue.3.2.47.min.js\" defer></script>"},
-        {"VUE_NUMBER_INPUT", "<script src=\"/js/vue-number-input.min.js\" defer></script>"},       {"UPLOT", R"(<script src="/js/uPlot.1.6.28.min.js" defer></script><link rel="stylesheet" href="/css/uPlot.min.css">)"}};
-
-    const auto it = headers.find(varName.c_str());
-    return it != headers.end() ? String(it->second) : String("");
-}
-
 inline String staticProcessor(const String& var) {
     // try replacing var for variables in ParameterRegistry
     if (var.startsWith("VAR_SHOW_")) {
         return getValue(var.substring(9)); // cut off "VAR_SHOW_"
-    }
-
-    if (var.startsWith("VAR_HEADER_")) {
-        return getHeader(var.substring(11)); // cut off "VAR_HEADER_"
     }
 
     // var didn't start with above names, try opening var as fragment file and use contents if it exists
@@ -246,7 +232,7 @@ inline void serverSetup() {
         request->redirect("/");
     });
 
-    if (config.get<bool>("hardware.sensors.scale.enabled")) {
+    if (scale && config.get<bool>("hardware.sensors.scale.enabled")) {
         server.on("/toggleTareScale", HTTP_POST, [](AsyncWebServerRequest* request) {
             if (!authenticate(request)) {
                 return request->requestAuthentication();
@@ -293,7 +279,7 @@ inline void serverSetup() {
 
             // Defaults
             int offset = 0;
-            int limit = 20;
+            int limit = 5;
 
             if (request->hasParam("offset")) {
                 offset = request->getParam("offset")->value().toInt();
@@ -437,36 +423,58 @@ inline void serverSetup() {
     });
 
     server.on("/temperatures", HTTP_GET, [](AsyncWebServerRequest* request) {
-        const String json = getTempString();
-        request->send(200, "application/json", json);
+        AsyncResponseStream* response = request->beginResponseStream("application/json");
+        response->print('{');
+        response->print("\"currentTemp\":");
+        response->print(curTemp, 2);
+        response->print(",\"targetTemp\":");
+        response->print(tTemp, 2);
+        response->print(",\"heaterPower\":");
+        response->print(hPower, 2);
+        response->print('}');
+        request->send(response);
     });
 
-    // TODO: could send values also chunked and without json (but needs three
-    // endpoints then?)
-    // https://stackoverflow.com/questions/61559745/espasyncwebserver-serve-large-array-from-ram
     server.on("/timeseries", HTTP_GET, [](AsyncWebServerRequest* request) {
         AsyncResponseStream* response = request->beginResponseStream("application/json");
         response->addHeader("Connection", "close"); // Force connection close
 
-        JsonDocument doc;
+        response->print('{');
 
-        // for each value in mem history array, add json array element
-        auto currentTemps = doc["currentTemps"].to<JsonArray>();
-        auto targetTemps = doc["targetTemps"].to<JsonArray>();
-        auto heaterPowers = doc["heaterPowers"].to<JsonArray>();
+        response->print("\"currentTemps\":[");
+        bool first = true;
 
-        // go through history values backwards starting from currentIndex and
-        // wrap around beginning to include valueCount many values
         for (int i = mod(historyCurrentIndex - historyValueCount, HISTORY_LENGTH); i != mod(historyCurrentIndex, HISTORY_LENGTH); i = mod(i + 1, HISTORY_LENGTH)) {
-            currentTemps.add(round2(tempHistory[0][i]));
-            targetTemps.add(round2(tempHistory[1][i]));
-            heaterPowers.add(round2(tempHistory[2][i]));
+            if (!first) response->print(',');
+            first = false;
+            response->print(tempHistory[0][i] * 0.01f, 2);
         }
 
-        String out;
-        out.reserve(measureJson(doc) + 16);
-        serializeJson(doc, out);
-        request->send(200, "application/json", out);
+        response->print("],");
+
+        response->print("\"targetTemps\":[");
+        first = true;
+
+        for (int i = mod(historyCurrentIndex - historyValueCount, HISTORY_LENGTH); i != mod(historyCurrentIndex, HISTORY_LENGTH); i = mod(i + 1, HISTORY_LENGTH)) {
+            if (!first) response->print(',');
+            first = false;
+            response->print(tempHistory[1][i] * 0.01f, 2);
+        }
+
+        response->print("],");
+
+        response->print("\"heaterPowers\":[");
+        first = true;
+
+        for (int i = mod(historyCurrentIndex - historyValueCount, HISTORY_LENGTH); i != mod(historyCurrentIndex, HISTORY_LENGTH); i = mod(i + 1, HISTORY_LENGTH)) {
+            if (!first) response->print(',');
+            first = false;
+            response->print(tempHistory[2][i] * 0.01f, 2);
+        }
+
+        response->print("]}");
+
+        request->send(response);
     });
 
     server.on("/wifireset", HTTP_POST, [](AsyncWebServerRequest* request) {
@@ -476,6 +484,9 @@ inline void serverSetup() {
 
         request->send(200, "text/plain", "WiFi settings are being reset. Rebooting...");
 
+        if (u8g2 != nullptr) {
+            u8g2->setPowerSave(1);
+        }
         // Defer slightly so the response gets sent before reboot
         delay(1000);
 
@@ -573,6 +584,11 @@ inline void serverSetup() {
         }
 
         request->send(200, "text/plain", "Restarting...");
+
+        if (u8g2 != nullptr) {
+            u8g2->setPowerSave(1);
+        }
+
         delay(100);
         ESP.restart();
     });
@@ -585,6 +601,10 @@ inline void serverSetup() {
         const bool removed = LittleFS.remove("/config.json");
 
         request->send(200, "text/plain", removed ? "Factory reset. Restarting..." : "Could not delete config.json. Restarting...");
+
+        if (u8g2 != nullptr) {
+            u8g2->setPowerSave(1);
+        }
 
         delay(100);
         ESP.restart();
@@ -614,7 +634,12 @@ inline void serverSetup() {
 
     server.begin();
 
-    LOG(INFO, ("Server started at " + WiFi.localIP().toString()).c_str());
+    if (offlineMode) {
+        LOG(INFO, ("Server started at " + WiFi.softAPIP().toString()).c_str());
+    }
+    else {
+        LOG(INFO, ("Server started at " + WiFi.localIP().toString()).c_str());
+    }
 }
 
 // skip counter so we don't keep a value every second
@@ -629,11 +654,11 @@ inline void sendTempEvent(const double currentTemp, const double targetTemp, con
     // save all values in memory to show history
     if (skippedValues > 0 && skippedValues % SECONDS_TO_SKIP == 0) {
         // use array and int value for start index (round robin)
-        // one record (3 float values == 12 bytes) every three seconds, for half
-        // an hour -> 7.2kB of static memory
-        tempHistory[0][historyCurrentIndex] = static_cast<float>(currentTemp);
-        tempHistory[1][historyCurrentIndex] = static_cast<float>(targetTemp);
-        tempHistory[2][historyCurrentIndex] = static_cast<float>(heaterPower);
+        // one record (3 int values == 6 bytes) every two seconds, for twenty
+        // minutes -> 3.6kB of static memory
+        tempHistory[0][historyCurrentIndex] = static_cast<int16_t>(currentTemp * 100);
+        tempHistory[1][historyCurrentIndex] = static_cast<int16_t>(targetTemp * 100);
+        tempHistory[2][historyCurrentIndex] = static_cast<int16_t>(heaterPower * 100);
         historyCurrentIndex = (historyCurrentIndex + 1) % HISTORY_LENGTH;
         historyValueCount = min(HISTORY_LENGTH - 1, historyValueCount + 1);
         skippedValues = 0;
@@ -642,6 +667,8 @@ inline void sendTempEvent(const double currentTemp, const double targetTemp, con
         skippedValues++;
     }
 
-    events.send("ping", nullptr, millis());
-    events.send(getTempString().c_str(), "new_temps", millis());
+    if (events.count() > 0) {
+        events.send("ping", nullptr, millis());
+        events.send(getTempString().c_str(), "new_temps", millis());
+    }
 }
