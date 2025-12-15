@@ -23,7 +23,8 @@
 
 // Sensors
 #define PIN_TEMPSENSOR      16
-#define PIN_WATERTANKSENSOR 23
+#define PIN_TEMPSENSORTWO   23 // PB second temp sensor
+#define PIN_WATERTANKSENSOR 39 // change from 23 to 39
 #define PIN_HXDAT           32 // Brew scale data pin 1
 #define PIN_HXDAT2          25 // Brew scale data pin 2
 #define PIN_HXCLK           33 // Brew scale clock pin

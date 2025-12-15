@@ -84,8 +84,8 @@ inline void checkMQTT() {
 
     if (millis() - lastMQTTConnectionAttempt >= wifiConnectionDelay && MQTTReCnctCount <= maxWifiReconnects) {
         if (!mqtt.connected()) {
-            lastMQTTConnectionAttempt = millis(); // Reconnection Timer Function
-            MQTTReCnctCount++;                    // Increment reconnection Counter
+            lastMQTTConnectionAttempt = millis();  // Reconnection Timer Function
+            MQTTReCnctCount++;                     // Increment reconnection Counter
             LOGF(DEBUG, "Attempting MQTT reconnection: %i", MQTTReCnctCount);
 
             // First clean up previous connection
@@ -263,7 +263,7 @@ inline void mqtt_callback(const char* topic, const byte* data, const unsigned in
 
     LOGF(DEBUG, "Received MQTT command %s %s\n", topic_str, data_str);
 
-    // convert received string value to double assuming it's a number
+    //convert received string value to double assuming it's a number
     sscanf(data_str, "%lf", &data_double);
     assignMQTTParam(configVar, data_double);
 }
@@ -415,7 +415,7 @@ inline int writeSysParamsToMQTT(const bool continueOnError = true) {
     mqttSensorsIt = mqttSensors.begin();
     inSensors = false;
 
-    return 0;
+  return 0; // Success
 }
 
 /**
@@ -612,7 +612,7 @@ inline DiscoveryObject GenerateNumberDevice(const char* name, const char* displa
     device["name"] = hostname;
 
     serializeJson(numberConfigDoc, number_device.payload_json, sizeof(number_device.payload_json));
-
+  
     return number_device;
 }
 
@@ -657,6 +657,7 @@ inline int sendHASSIODiscoveryMsg() {
     // Always published devices
     failures += publishDiscovery(GenerateSensorDevice("machineState", "Machine State", "", "enum", getMachineStateOptions()));
     failures += publishDiscovery(GenerateSensorDevice("temperature", "Boiler Temperature", "°C", "temperature"));
+    failures += publishDiscovery(GenerateSensorDevice("temperaturetwo", "Outlet Temperature", "°C", "temperature"));    // PB add Outlet Temp
     failures += publishDiscovery(GenerateSensorDevice("heaterPower", "Heater Power", "%", "power_factor"));
 
     failures += publishDiscovery(GenerateNumberDevice("brewSetpoint", "Brew setpoint", BREW_SETPOINT_MIN, BREW_SETPOINT_MAX, 0.1, "°C"));

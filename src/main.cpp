@@ -155,6 +155,7 @@ Switch* steamSwitch = nullptr;
 Switch* hotWaterSwitch = nullptr;
 
 TempSensor* tempSensor = nullptr;
+TempSensor* tempSensor2 = nullptr; // PB add tempSensor2
 
 #include "isr.h"
 
@@ -212,7 +213,7 @@ double standbyModeTime = STANDBY_MODE_TIME;
 #include "standby.h"
 
 // Variables to hold PID values (Temp input, Heater output)
-double temperature, pidOutput;
+double temperature, temperaturetwo, pidOutput; // PB temperaturetwo for second Temp Sensor
 bool steamON = false;
 bool steamFirstON = false;
 
@@ -1082,6 +1083,7 @@ void setup() {
 
             // Values reported to MQTT
             mqttSensors["temperature"] = [] { return temperature; };
+            mqttSensors["temperaturetwo"] = []{ return temperaturetwo; };  // PB add mqttSensors temperaturetwo
             mqttSensors["heaterPower"] = [] { return pidOutput / 10; };
             mqttSensors["standbyModeTimeRemaining"] = [] { return standbyModeRemainingTimeMillis / 1000; };
             mqttSensors["currentKp"] = [] { return bPID.GetKp(); };
@@ -1164,6 +1166,7 @@ void setup() {
 
     if (tempSensorType == 0) {
         tempSensor = new TempSensorTSIC(PIN_TEMPSENSOR);
+        tempSensor2 = new TempSensorTSIC(PIN_TEMPSENSORTWO); // PB add tempSensor2
     }
     else if (tempSensorType == 1) {
         tempSensor = new TempSensorDallas(PIN_TEMPSENSOR);
@@ -1171,6 +1174,7 @@ void setup() {
 
     if (tempSensor != nullptr) {
         temperature = tempSensor->getCurrentTemperature();
+        temperaturetwo = tempSensor2->getCurrentTemperature(); // PB add tempSensor2
         temperature -= brewTempOffset;
     }
 
@@ -1253,6 +1257,7 @@ void loopPid() {
 
     if (tempSensor != nullptr) {
         temperature = tempSensor->getCurrentTemperature();
+        temperaturetwo = tempSensor2->getCurrentTemperature(); // add tempSensor2
 
         if (machineState != kSteam) {
             temperature -= brewTempOffset;
