@@ -48,18 +48,17 @@ Config config;
 
 enum MachineState {
     kInit = 0,
-    kPidNormal = 20,
-    kBrew = 30,
-    kManualFlush = 35,
+    kPidNormal = 10,
+    kBrew = 20,
+    kManualFlush = 25,
+    kSteam = 30,
     kHotWater = 40,
-    kSteam = 50,
-    kBackflush = 60,
+    kBackflush = 50,
+    kPidDisabled = 60,
     kWaterTankEmpty = 70,
-    kEmergencyStop = 80,
-    kPidDisabled = 90,
-    kStandby = 95,
-    kSensorError = 100,
-    kEepromError = 110,
+    kStandby = 80,
+    kEmergencyStop = 100,
+    kSensorError = 110,
 };
 
 struct EnumOption {
@@ -78,8 +77,7 @@ constexpr EnumOption machineStateOptions[] = {{kInit, "Init"},
                                               {kEmergencyStop, "Emergency Stop"},
                                               {kPidDisabled, "PID Disabled"},
                                               {kStandby, "Standby Mode"},
-                                              {kSensorError, "Sensor Error"},
-                                              {kEepromError, "EEPROM Error"}};
+                                              {kSensorError, "Sensor Error"}};
 
 MachineState machineState = kInit;
 MachineState lastmachinestate = kInit;
@@ -320,7 +318,7 @@ void testEmergencyStop() {
  * @brief Switch to offline mode if maxWifiReconnects were exceeded during boot
  */
 void initOfflineMode() {
-    LOG(INFO, "Start offline mode with eeprom values, no wifi :(");
+    LOG(INFO, "Start offline mode with saved values, no wifi :(");
     offlineMode = true;
     mqtt_enabled = false;
     mqtt_hassio_enabled = false;
@@ -412,19 +410,19 @@ float filterPressureValue(const float input) {
 void handleMachineState() {
     switch (machineState) {
         case kInit:
+            if (!pidON) {
+                machineState = kPidDisabled;
+            }
+            else {
+                machineState = kPidNormal;
+            }
+
             if (!waterTankFull) {
                 machineState = kWaterTankEmpty;
             }
 
             if (tempSensor != nullptr && tempSensor->hasError()) {
                 machineState = kSensorError;
-            }
-
-            if (!pidON) {
-                machineState = kPidDisabled;
-            }
-            else {
-                machineState = kPidNormal;
             }
 
             break;
@@ -440,14 +438,6 @@ void handleMachineState() {
 
             if (manualFlush()) {
                 machineState = kManualFlush;
-
-                if (standbyModeOn) {
-                    resetStandbyTimer(machineState);
-                }
-            }
-
-            if (backflushOn) {
-                machineState = kBackflush;
 
                 if (standbyModeOn) {
                     resetStandbyTimer(machineState);
@@ -470,13 +460,12 @@ void handleMachineState() {
                 }
             }
 
-            if (emergencyStop) {
-                machineState = kEmergencyStop;
-            }
+            if (backflushOn) {
+                machineState = kBackflush;
 
-            if (standbyModeOn && standbyModeRemainingTimeMillis == 0) {
-                machineState = kStandby;
-                setRuntimePidState(false);
+                if (standbyModeOn) {
+                    resetStandbyTimer(machineState);
+                }
             }
 
             if (!pidON && machineState != kStandby) {
@@ -485,6 +474,15 @@ void handleMachineState() {
 
             if (!waterTankFull) {
                 machineState = kWaterTankEmpty;
+            }
+
+            if (standbyModeOn && standbyModeRemainingTimeMillis == 0) {
+                machineState = kStandby;
+                setRuntimePidState(false);
+            }
+
+            if (emergencyStop) {
+                machineState = kEmergencyStop;
             }
 
             if (tempSensor != nullptr && tempSensor->hasError()) {
@@ -498,20 +496,20 @@ void handleMachineState() {
                 machineState = kPidNormal;
             }
 
-            if (emergencyStop) {
-                machineState = kEmergencyStop;
+            if (machineState != kBrew) {
+                MQTTReCnctCount = 0; // allow MQTT to try to reconnect if exiting brew mode
             }
 
             if (!pidON) {
                 machineState = kPidDisabled;
             }
 
-            if (tempSensor != nullptr && tempSensor->hasError()) {
-                machineState = kSensorError;
+            if (emergencyStop) {
+                machineState = kEmergencyStop;
             }
 
-            if (machineState != kBrew) {
-                MQTTReCnctCount = 0; // allow MQTT to try to reconnect if exiting brew mode
+            if (tempSensor != nullptr && tempSensor->hasError()) {
+                machineState = kSensorError;
             }
 
             break;
@@ -521,17 +519,18 @@ void handleMachineState() {
                 machineState = kPidNormal;
             }
 
-            if (emergencyStop) {
-                machineState = kEmergencyStop;
-            }
-
             if (!pidON) {
                 machineState = kPidDisabled;
+            }
+
+            if (emergencyStop) {
+                machineState = kEmergencyStop;
             }
 
             if (tempSensor != nullptr && tempSensor->hasError()) {
                 machineState = kSensorError;
             }
+
             break;
 
         case kHotWater:
@@ -539,20 +538,12 @@ void handleMachineState() {
                 machineState = kPidNormal;
             }
 
-            if (steamON) {
-                machineState = kSteam;
-
-                if (standbyModeOn) {
-                    resetStandbyTimer(machineState);
-                }
+            if (!pidON) {
+                machineState = kPidDisabled;
             }
 
             if (emergencyStop) {
                 machineState = kEmergencyStop;
-            }
-
-            if (!pidON) {
-                machineState = kPidDisabled;
             }
 
             if (tempSensor != nullptr && tempSensor->hasError()) {
@@ -566,21 +557,26 @@ void handleMachineState() {
                 machineState = kPidNormal;
             }
 
-            if (checkHotWaterStates() && standbyModeOn) {
-                resetStandbyTimer(machineState);
+            if (checkHotWaterStates()) {
+                machineState = kHotWater;
+
+                if (standbyModeOn) {
+                    resetStandbyTimer(machineState);
+                }
+            }
+
+            if (pidON == 0) {
+                machineState = kPidDisabled;
             }
 
             if (standbyModeOn && standbyModeRemainingTimeMillis == 0) {
                 machineState = kStandby;
                 setRuntimePidState(false);
+                setSteamMode(false);
             }
 
             if (emergencyStop) {
                 machineState = kEmergencyStop;
-            }
-
-            if (pidON == 0) {
-                machineState = kPidDisabled;
             }
 
             if (tempSensor->hasError()) {
@@ -607,6 +603,14 @@ void handleMachineState() {
                 }
             }
 
+            if (!pidON) {
+                machineState = kPidDisabled;
+            }
+
+            if (!waterTankFull && (currBackflushState == kBackflushIdle || currBackflushState == kBackflushFinished)) {
+                machineState = kWaterTankEmpty;
+            }
+
             if (standbyModeOn && standbyModeRemainingTimeMillis == 0) {
                 machineState = kStandby;
                 setRuntimePidState(false);
@@ -614,14 +618,6 @@ void handleMachineState() {
 
             if (emergencyStop) {
                 machineState = kEmergencyStop;
-            }
-
-            if (!pidON) {
-                machineState = kPidDisabled;
-            }
-
-            if (!waterTankFull && (currBackflushState == kBackflushIdle || currBackflushState == kBackflushFinished)) {
-                machineState = kWaterTankEmpty;
             }
 
             if (tempSensor != nullptr && tempSensor->hasError()) {
@@ -694,9 +690,20 @@ void handleMachineState() {
                         u8g2->setPowerSave(0);
                     }
                 }
-                if (steamON) {
+
+                if (brew()) {
                     setRuntimePidState(true);
-                    machineState = kSteam;
+                    machineState = kBrew;
+                    resetStandbyTimer(machineState);
+
+                    if (u8g2 != nullptr) {
+                        u8g2->setPowerSave(0);
+                    }
+                }
+
+                if (manualFlush()) {
+                    setRuntimePidState(true);
+                    machineState = kManualFlush;
                     resetStandbyTimer(machineState);
 
                     if (u8g2 != nullptr) {
@@ -714,19 +721,9 @@ void handleMachineState() {
                     }
                 }
 
-                if (brew()) {
+                if (steamON) {
                     setRuntimePidState(true);
-                    machineState = kBrew;
-                    resetStandbyTimer(machineState);
-
-                    if (u8g2 != nullptr) {
-                        u8g2->setPowerSave(0);
-                    }
-                }
-
-                if (manualFlush()) {
-                    setRuntimePidState(true);
-                    machineState = kManualFlush;
+                    machineState = kSteam;
                     resetStandbyTimer(machineState);
 
                     if (u8g2 != nullptr) {
@@ -760,10 +757,6 @@ void handleMachineState() {
 
         case kSensorError:
             machineState = kSensorError;
-            break;
-
-        case kEepromError:
-            machineState = kEepromError;
             break;
     }
 
@@ -1431,8 +1424,7 @@ void loopPid() {
     }
 
     // Check if PID should run or not. If not, set to manual and force output to zero
-    if (machineState == kPidDisabled || machineState == kWaterTankEmpty || machineState == kSensorError || machineState == kEmergencyStop || machineState == kEepromError || machineState == kStandby ||
-        machineState == kBackflush || brewPidDisabled) {
+    if (machineState == kPidDisabled || machineState == kWaterTankEmpty || machineState == kSensorError || machineState == kEmergencyStop || machineState == kStandby || machineState == kBackflush || brewPidDisabled) {
         if (bPID.GetMode() == 1) {
             // Force PID shutdown
             bPID.SetMode(0);
