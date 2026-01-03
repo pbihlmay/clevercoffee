@@ -44,16 +44,16 @@ inline void printScreen() {
     displayStatusbar();
 
     u8g2->setCursor(34, 16);
-    u8g2->print(langstring_current_temp);
+    u8g2->print("Boiler:");
     u8g2->setCursor(84, 16);
     u8g2->print(temperature, 1);
     u8g2->setCursor(115, 16);
     u8g2->print(static_cast<char>(176));
     u8g2->print("C");
     u8g2->setCursor(34, 26);
-    u8g2->print(langstring_set_temp);
+    u8g2->print("Outlet:");
     u8g2->setCursor(84, 26);
-    u8g2->print(setpoint, 1);
+    u8g2->print(temperaturetwo, 1);
     u8g2->setCursor(115, 26);
     u8g2->print(static_cast<char>(176));
     u8g2->print("C");
